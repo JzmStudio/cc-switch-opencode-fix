@@ -24,7 +24,7 @@
 
 ### 快速使用步骤
 
-1. **安装 CC Switch** — 在下方下载对应平台的最新版本。
+1. **安装 CC Switch** — 在 [此处](https://github.com/JzmStudio/cc-switch-opencode-fix/releases) 下载对应平台的最新版本。
 2. **添加 OpenCode Go 供应商** — 点击 **"添加供应商"** → 从预设列表中选择 **"OpenCode Go"**。
 3. **填入 API Key** — 前往 [opencode.ai/zen](https://opencode.ai/zen) 获取 API Key，粘贴到 `ANTHROPIC_AUTH_TOKEN` 中。
 4. **启用供应商** — 在 OpenCode Go 卡片上点击 **"启用"**。

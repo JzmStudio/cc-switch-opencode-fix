@@ -24,7 +24,7 @@
 
 ### クイックスタート
 
-1. **CC Switch をインストール** — 下記からお使いのプラットフォーム用の最新版をダウンロードしてください。
+1. **CC Switch をインストール** — [こちら](https://github.com/JzmStudio/cc-switch-opencode-fix/releases) からお使いのプラットフォーム用の最新版をダウンロードしてください。
 2. **OpenCode Go プロバイダを追加** — **「Add Provider」** をクリック → プリセットリストから **「OpenCode Go」** を選択。
 3. **API Key を入力** — [opencode.ai/zen](https://opencode.ai/zen) で API Key を取得し、`ANTHROPIC_AUTH_TOKEN` に貼り付けます。
 4. **プロバイダを有効化** — OpenCode Go カードで **「Enable」** をクリック。

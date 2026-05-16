@@ -24,7 +24,7 @@ English | [中文](README_ZH.md) | [日本語](README_JA.md) | [Changelog](CHANG
 
 ### Quick Steps
 
-1. **Install CC Switch** — Download the latest release for your platform below.
+1. **Install CC Switch** — Download the latest release for your platform [here](https://github.com/JzmStudio/cc-switch-opencode-fix/releases).
 2. **Add OpenCode Go provider** — Click **"Add Provider"** → Select **"OpenCode Go"** from the preset list.
 3. **Enter your API key** — Get your key at [opencode.ai/zen](https://opencode.ai/zen) and paste it into `ANTHROPIC_AUTH_TOKEN`.
 4. **Enable the provider** — Click **"Enable"** on the OpenCode Go card.
