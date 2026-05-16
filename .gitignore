@@ -30,3 +30,15 @@ copilot-api
 CODEBUDDY.md
 .github
 mainWindow.js
+
+# Tauri signing keys
+.tauri/
+
+# OpenSpec artifacts
+openspec/
+
+# Reference docs
+go.mdx
+
+# Download temp files
+*.crdownload

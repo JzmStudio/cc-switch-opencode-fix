@@ -59,7 +59,12 @@ export interface ProviderPreset {
   // 供应商类型标识（用于特殊供应商检测）
   // - "github_copilot": GitHub Copilot 供应商（需要 OAuth 认证）
   // - "codex_oauth": OpenAI Codex via ChatGPT Plus/Pro 反代（需要 OAuth 认证）
-  providerType?: "github_copilot" | "codex_oauth";
+  // - "opencode_go": OpenCode Go 供应商（模型感知的动态格式路由）
+  providerType?: "github_copilot" | "codex_oauth" | "opencode_go";
+
+  // 是否剥离请求体中的 cache_control 字段
+  // 用于不支持 Anthropic prompt caching 的上游供应商（如 OpenCode Go）
+  stripCacheControl?: boolean;
 
   // 是否需要 OAuth 认证（而非 API Key）
   requiresOAuth?: boolean;
@@ -870,6 +875,28 @@ export const providerPresets: ProviderPreset[] = [
     providerType: "codex_oauth",
     requiresOAuth: true,
     icon: "openai",
+    iconColor: "#000000",
+  },
+  {
+    name: "OpenCode Go",
+    websiteUrl: "https://opencode.ai",
+    apiKeyUrl: "https://opencode.ai/zen",
+    settingsConfig: {
+      env: {
+        ANTHROPIC_BASE_URL: "https://opencode.ai/zen/go",
+        ANTHROPIC_AUTH_TOKEN: "",
+        ANTHROPIC_MODEL: "kimi-k2.6",
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: "deepseek-v4-flash",
+        ANTHROPIC_DEFAULT_SONNET_MODEL: "kimi-k2.6",
+        ANTHROPIC_DEFAULT_OPUS_MODEL: "glm-5.1",
+      },
+    },
+    category: "third_party",
+    apiFormat: "openai_chat",
+    providerType: "opencode_go",
+    stripCacheControl: true,
+    modelsUrl: "https://opencode.ai/zen/go/v1/models",
+    icon: "opencode",
     iconColor: "#000000",
   },
   {

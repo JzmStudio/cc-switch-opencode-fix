@@ -183,6 +183,8 @@ export interface ProviderMeta {
   codexFastMode?: boolean;
   // 供应商类型（用于识别 Copilot 等特殊供应商）
   providerType?: string;
+  // 是否剥离请求体中的 cache_control 字段（用于不支持 Anthropic prompt caching 的供应商）
+  stripCacheControl?: boolean;
   // GitHub Copilot 关联账号 ID（旧字段，保留兼容读取）
   githubAccountId?: string;
 }

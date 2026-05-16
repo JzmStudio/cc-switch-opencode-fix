@@ -1240,6 +1240,8 @@ function ProviderFormFull({
         supportsFullUrl && category !== "official" && localIsFullUrl
           ? true
           : undefined,
+      // 从预设传递 stripCacheControl（用于 OpenCode Go 等不支持 cache_control 的供应商）
+      stripCacheControl: templatePreset?.stripCacheControl ?? initialData?.meta?.stripCacheControl,
     };
 
     if (!isCodexOauthProvider && "codexFastMode" in nextMeta) {

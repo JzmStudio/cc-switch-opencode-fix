@@ -320,8 +320,16 @@ pub struct ProviderMeta {
     /// `None` 表示旧数据/未知状态，`Some(false)` 表示明确仅存在于数据库中。
     #[serde(rename = "liveConfigManaged", skip_serializing_if = "Option::is_none")]
     pub live_config_managed: Option<bool>,
+    /// 是否剥离请求体中的 cache_control 字段
+    /// 用于不支持 Anthropic prompt caching 语法的上游供应商（如 OpenCode Go）
+    #[serde(
+        rename = "stripCacheControl",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub strip_cache_control: Option<bool>,
     /// 供应商类型标识（用于特殊供应商检测）
     /// - "github_copilot": GitHub Copilot 供应商
+    /// - "opencode_go": OpenCode Go 供应商
     #[serde(rename = "providerType", skip_serializing_if = "Option::is_none")]
     pub provider_type: Option<String>,
     /// GitHub Copilot 关联账号 ID（仅 github_copilot 供应商使用）

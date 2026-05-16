@@ -1155,7 +1155,20 @@ impl RequestForwarder {
 
         // 过滤私有参数（以 `_` 开头的字段），防止内部信息泄露到上游
         // 默认使用空白名单，过滤所有 _ 前缀字段
-        let filtered_body = prepare_upstream_request_body(request_body);
+        let mut filtered_body = prepare_upstream_request_body(request_body);
+
+        // 剥离 cache_control 字段（用于不支持 Anthropic prompt caching 的上游供应商）
+        // 注意：openai_chat 等格式转换会保留 cache_control（为兼容 OpenRouter 等支持它的代理），
+        // 因此需要在所有路径上（包括转换后）统一剥离。
+        if provider
+            .meta
+            .as_ref()
+            .and_then(|m| m.strip_cache_control)
+            .unwrap_or(false)
+        {
+            super::body_filter::strip_cache_control(&mut filtered_body);
+        }
+
         log_prompt_cache_trace(
             app_type,
             provider,
@@ -1681,6 +1694,24 @@ impl RequestForwarder {
         body: &Value,
         is_copilot: bool,
     ) -> String {
+        // OpenCode Go: 根据模型 ID 动态选择 api_format
+        if provider
+            .meta
+            .as_ref()
+            .and_then(|m| m.provider_type.as_deref())
+            == Some("opencode_go")
+        {
+            let model = body
+                .get("model")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            return if is_opencode_go_anthropic_model(model) {
+                "anthropic".to_string()
+            } else {
+                "openai_chat".to_string()
+            };
+        }
+
         if !is_copilot {
             return super::providers::get_claude_api_format(provider).to_string();
         }
@@ -1936,6 +1967,15 @@ fn extract_json_error_message(body: &Value) -> Option<String> {
         .into_iter()
         .flatten()
         .find_map(|value| value.as_str().map(ToString::to_string))
+}
+
+/// 判断 OpenCode Go 模型是否使用 Anthropic Messages 格式
+///
+/// OpenCode Go 中，MiniMax 系列模型使用 /v1/messages（Anthropic 格式），
+/// 其他所有模型使用 /v1/chat/completions（OpenAI Chat 格式）。
+fn is_opencode_go_anthropic_model(model_id: &str) -> bool {
+    let model_lower = model_id.to_ascii_lowercase();
+    model_lower.starts_with("minimax-")
 }
 
 fn split_endpoint_and_query(endpoint: &str) -> (&str, Option<&str>) {
@@ -2747,5 +2787,59 @@ mod tests {
             let will_replace = is_copilot && !is_full_url;
             assert_eq!(will_replace, should_replace, "{desc}");
         }
+    }
+
+    // =====================================================================
+    // OpenCode Go model routing tests
+    // =====================================================================
+
+    #[test]
+    fn opencode_go_anthropic_model_minimax_m25() {
+        assert!(is_opencode_go_anthropic_model("minimax-m2.5"));
+    }
+
+    #[test]
+    fn opencode_go_anthropic_model_minimax_m27() {
+        assert!(is_opencode_go_anthropic_model("minimax-m2.7"));
+    }
+
+    #[test]
+    fn opencode_go_anthropic_model_minimax_case_insensitive() {
+        assert!(is_opencode_go_anthropic_model("MiniMax-M2.7"));
+    }
+
+    #[test]
+    fn opencode_go_openai_chat_model_kimi() {
+        assert!(!is_opencode_go_anthropic_model("kimi-k2.6"));
+    }
+
+    #[test]
+    fn opencode_go_openai_chat_model_glm() {
+        assert!(!is_opencode_go_anthropic_model("glm-5.1"));
+    }
+
+    #[test]
+    fn opencode_go_openai_chat_model_deepseek() {
+        assert!(!is_opencode_go_anthropic_model("deepseek-v4-pro"));
+    }
+
+    #[test]
+    fn opencode_go_openai_chat_model_qwen() {
+        assert!(!is_opencode_go_anthropic_model("qwen3.6-plus"));
+    }
+
+    #[test]
+    fn opencode_go_openai_chat_model_mimo() {
+        assert!(!is_opencode_go_anthropic_model("mimo-v2.5"));
+    }
+
+    #[test]
+    fn opencode_go_openai_chat_model_unknown() {
+        assert!(!is_opencode_go_anthropic_model("unknown-model-xyz"));
+    }
+
+    #[test]
+    fn opencode_go_openai_chat_model_empty() {
+        assert!(!is_opencode_go_anthropic_model(""));
     }
 }

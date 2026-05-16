@@ -124,6 +124,46 @@ fn matches_schema_name_map(key: &str) -> bool {
     )
 }
 
+/// 递归移除请求体中所有 `cache_control` 字段
+///
+/// 用于不支持 Anthropic prompt caching 语法的上游供应商。
+/// 遍历所有嵌套对象和数组，移除每一个 key 为 `cache_control` 的字段。
+///
+/// # Arguments
+/// * `body` - 可变引用的请求体
+///
+/// # Example
+/// ```ignore
+/// let mut body = json!({
+///     "tools": [{"name": "t1", "cache_control": {"type": "ephemeral"}}],
+///     "system": [{"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}}],
+///     "messages": [{"role": "user", "content": [
+///         {"type": "text", "text": "hi", "cache_control": {"type": "ephemeral"}}
+///     ]}]
+/// });
+/// strip_cache_control(&mut body);
+/// // 所有 cache_control 字段已被移除
+/// ```
+pub fn strip_cache_control(body: &mut Value) {
+    match body {
+        Value::Object(map) => {
+            let had_cache_control = map.remove("cache_control").is_some();
+            if had_cache_control {
+                log::debug!("[BodyFilter] stripped cache_control");
+            }
+            for val in map.values_mut() {
+                strip_cache_control(val);
+            }
+        }
+        Value::Array(arr) => {
+            for val in arr.iter_mut() {
+                strip_cache_control(val);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,5 +375,102 @@ mod tests {
         let output2 = filter_private_params_with_whitelist(input, &[]);
 
         assert_eq!(output1, output2);
+    }
+
+    // =====================================================================
+    // strip_cache_control tests
+    // =====================================================================
+
+    #[test]
+    fn test_strip_cache_control_from_tools() {
+        let mut body = json!({
+            "tools": [
+                {"name": "t1", "cache_control": {"type": "ephemeral"}},
+                {"name": "t2"}
+            ]
+        });
+        strip_cache_control(&mut body);
+        assert!(body["tools"][0].get("cache_control").is_none());
+        assert_eq!(body["tools"][0]["name"], "t1");
+        assert_eq!(body["tools"][1]["name"], "t2");
+    }
+
+    #[test]
+    fn test_strip_cache_control_from_system() {
+        let mut body = json!({
+            "system": [
+                {"type": "text", "text": "You are helpful.", "cache_control": {"type": "ephemeral"}}
+            ]
+        });
+        strip_cache_control(&mut body);
+        assert!(body["system"][0].get("cache_control").is_none());
+        assert_eq!(body["system"][0]["text"], "You are helpful.");
+    }
+
+    #[test]
+    fn test_strip_cache_control_from_message_content() {
+        let mut body = json!({
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "hello", "cache_control": {"type": "ephemeral", "ttl": "5m"}},
+                        {"type": "text", "text": "world"}
+                    ]
+                }
+            ]
+        });
+        strip_cache_control(&mut body);
+        assert!(body["messages"][0]["content"][0].get("cache_control").is_none());
+        assert_eq!(body["messages"][0]["content"][0]["text"], "hello");
+        assert_eq!(body["messages"][0]["content"][1]["text"], "world");
+    }
+
+    #[test]
+    fn test_strip_cache_control_multiple_locations() {
+        let mut body = json!({
+            "tools": [{"name": "t1", "cache_control": {"type": "ephemeral"}}],
+            "system": [{"type": "text", "text": "sys", "cache_control": {"type": "ephemeral"}}],
+            "messages": [
+                {"role": "user", "content": [
+                    {"type": "text", "text": "hi", "cache_control": {"type": "ephemeral"}}
+                ]}
+            ]
+        });
+        strip_cache_control(&mut body);
+        assert!(body["tools"][0].get("cache_control").is_none());
+        assert!(body["system"][0].get("cache_control").is_none());
+        assert!(body["messages"][0]["content"][0].get("cache_control").is_none());
+    }
+
+    #[test]
+    fn test_strip_cache_control_no_cache_control() {
+        let original = json!({
+            "model": "claude-3",
+            "messages": [{"role": "user", "content": "hello"}],
+            "max_tokens": 1024
+        });
+        let mut body = original.clone();
+        strip_cache_control(&mut body);
+        assert_eq!(body, original);
+    }
+
+    #[test]
+    fn test_strip_cache_control_preserves_other_fields() {
+        let mut body = json!({
+            "model": "minimax-m2.7",
+            "max_tokens": 4096,
+            "stream": true,
+            "tools": [
+                {"name": "tool1", "description": "A tool", "cache_control": {"type": "ephemeral"}}
+            ]
+        });
+        strip_cache_control(&mut body);
+        assert_eq!(body["model"], "minimax-m2.7");
+        assert_eq!(body["max_tokens"], 4096);
+        assert_eq!(body["stream"], true);
+        assert_eq!(body["tools"][0]["name"], "tool1");
+        assert_eq!(body["tools"][0]["description"], "A tool");
+        assert!(body["tools"][0].get("cache_control").is_none());
     }
 }
