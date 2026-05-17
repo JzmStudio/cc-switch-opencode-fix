@@ -89,15 +89,18 @@ struct ToolBlockState {
     name: String,
     started: bool,
     pending_args: String,
-    /// 连续空白字符计数 — 用于检测 Copilot 无限换行 bug
-    /// 当 function call 参数中出现连续 20+ 空白字符时，强制终止流
-    consecutive_whitespace: usize,
+    /// 已接收的 arguments 总字符数
+    total_args_chars: usize,
+    /// 其中空白字符的总数
+    whitespace_chars: usize,
     /// 是否已因无限空白 bug 被中止
     aborted: bool,
 }
 
-/// 无限空白 bug 的连续空白字符阈值
-const INFINITE_WHITESPACE_THRESHOLD: usize = 20;
+/// 空白占比阈值 — 当 tool call arguments 中空白字符占比 >= 此值时判定为异常
+const WHITESPACE_RATIO_THRESHOLD: f64 = 0.95;
+/// 空白检测最小样本量 — 只有当 arguments 累计长度达到此值时才启用比率检测
+const MIN_ARGS_LEN_FOR_CHECK: usize = 200;
 
 fn build_anthropic_usage_json(usage: &Usage) -> Value {
     let mut usage_json = json!({
@@ -136,10 +139,17 @@ fn build_message_delta_event(stop_reason: Option<String>, usage_json: Option<Val
 }
 
 /// 创建 Anthropic SSE 流
+///
+/// # Arguments
+/// * `stream` - 上游 OpenAI 格式的 SSE 字节流
+/// * `provider_hint` - 可选的上游供应商类型标识，预留用于未来按供应商差异化行为
 pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
     stream: impl Stream<Item = Result<Bytes, E>> + Send + 'static,
+    provider_hint: Option<String>,
 ) -> impl Stream<Item = Result<Bytes, std::io::Error>> + Send {
     async_stream::stream! {
+        // provider_hint 当前不用于分支逻辑，仅预留接口供未来按供应商差异化行为
+        let _provider_hint = provider_hint;
         let mut buffer = String::new();
         let mut utf8_remainder: Vec<u8> = Vec::new();
         let mut message_id = None;
@@ -372,7 +382,8 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
                                                                 name: String::new(),
                                                                 started: false,
                                                                 pending_args: String::new(),
-                                                                consecutive_whitespace: 0,
+                                                                total_args_chars: 0,
+                                                                whitespace_chars: 0,
                                                                 aborted: false,
                                                             }
                                                         });
@@ -410,18 +421,25 @@ pub fn create_anthropic_sse_stream<E: std::error::Error + Send + 'static>(
                                                         .as_ref()
                                                         .and_then(|f| f.arguments.clone());
                                                     let immediate_delta = if let Some(args) = args_delta {
-                                                        // 无限空白 bug 检测：跟踪连续空白字符
+                                                        // 空白异常检测：累加字符计数并检查比率
                                                         for ch in args.chars() {
+                                                            state.total_args_chars += 1;
                                                             if ch.is_whitespace() {
-                                                                state.consecutive_whitespace += 1;
-                                                            } else {
-                                                                state.consecutive_whitespace = 0;
+                                                                state.whitespace_chars += 1;
                                                             }
                                                         }
-                                                        if state.consecutive_whitespace >= INFINITE_WHITESPACE_THRESHOLD {
+                                                        if state.total_args_chars >= MIN_ARGS_LEN_FOR_CHECK
+                                                            && (state.whitespace_chars as f64
+                                                                / state.total_args_chars as f64)
+                                                                >= WHITESPACE_RATIO_THRESHOLD
+                                                        {
+                                                            let ratio = state.whitespace_chars as f64
+                                                                / state.total_args_chars as f64;
                                                             log::warn!(
-                                                                "[Copilot] 检测到无限空白 bug (tool: {}), 中止此 tool call 流",
-                                                                state.name
+                                                                "[Streaming] 检测到异常空白 (tool: {}, len: {}, ratio: {:.2}), 中止此 tool call 流",
+                                                                state.name,
+                                                                state.total_args_chars,
+                                                                ratio,
                                                             );
                                                             state.aborted = true;
                                                             None
@@ -694,7 +712,7 @@ mod tests {
         let upstream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(
             input.as_bytes().to_vec(),
         ))]);
-        let converted = create_anthropic_sse_stream(upstream);
+        let converted = create_anthropic_sse_stream(upstream, None);
         let chunks: Vec<_> = converted.collect().await;
         let merged = chunks
             .into_iter()
@@ -742,7 +760,7 @@ mod tests {
         let upstream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(
             input.as_bytes().to_vec(),
         ))]);
-        let converted = create_anthropic_sse_stream(upstream);
+        let converted = create_anthropic_sse_stream(upstream, None);
         let chunks: Vec<_> = converted.collect().await;
 
         let merged = chunks
@@ -832,7 +850,7 @@ mod tests {
         let upstream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(
             input.as_bytes().to_vec(),
         ))]);
-        let converted = create_anthropic_sse_stream(upstream);
+        let converted = create_anthropic_sse_stream(upstream, None);
         let chunks: Vec<_> = converted.collect().await;
         let merged = chunks
             .into_iter()
@@ -914,7 +932,7 @@ mod tests {
             Ok::<_, std::io::Error>(chunk1),
             Ok::<_, std::io::Error>(chunk2),
         ]);
-        let converted = create_anthropic_sse_stream(upstream);
+        let converted = create_anthropic_sse_stream(upstream, None);
         let chunks: Vec<_> = converted.collect().await;
 
         let merged = chunks
@@ -946,7 +964,7 @@ mod tests {
         let upstream = stream::iter(vec![Ok::<_, std::io::Error>(Bytes::from(
             input.as_bytes().to_vec(),
         ))]);
-        let converted = create_anthropic_sse_stream(upstream);
+        let converted = create_anthropic_sse_stream(upstream, None);
         let chunks: Vec<_> = converted.collect().await;
 
         let merged = chunks
@@ -1110,7 +1128,7 @@ mod tests {
         let upstream = stream::iter(vec![Err::<Bytes, _>(std::io::Error::other(
             "upstream disconnected",
         ))]);
-        let converted = create_anthropic_sse_stream(upstream);
+        let converted = create_anthropic_sse_stream(upstream, None);
         let chunks: Vec<_> = converted.collect().await;
 
         let merged = chunks
@@ -1137,5 +1155,110 @@ mod tests {
         assert!(!events
             .iter()
             .any(|e| e.get("type").and_then(|v| v.as_str()) == Some("message_stop")));
+    }
+
+    #[tokio::test]
+    async fn test_whitespace_detection_normal_python_code_not_aborted() {
+        // 模拟包含大量缩进和空行的 Python 代码 Write tool call（空白比例 ~40%）
+        let mut python_code = String::from(r#"{\"command\":\"write\",\"path\":\"main.py\",\"content\":\""#);
+        for i in 0..20 {
+            python_code.push_str(&format!("def func_{}(self):\\n", i));
+            python_code.push_str("    x = 1\\n");
+            python_code.push_str("    return x\\n");
+            python_code.push_str("\\n");
+        }
+        python_code.push_str(r#"\"}"#);
+
+        let input = format!(
+            "data: {{\"id\":\"chatcmpl_py\",\"model\":\"kimi-k2.6\",\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\"id\":\"call_py\",\"type\":\"function\",\"function\":{{\"name\":\"Write\"}}}}]}}}}]}}\n\n\
+             data: {{\"id\":\"chatcmpl_py\",\"model\":\"kimi-k2.6\",\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\"function\":{{\"arguments\":\"{}\"}}}}]}}}}]}}\n\n\
+             data: {{\"id\":\"chatcmpl_py\",\"model\":\"kimi-k2.6\",\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"tool_calls\"}}],\"usage\":{{\"prompt_tokens\":100,\"completion_tokens\":50}}}}\n\n\
+             data: [DONE]\n\n",
+            python_code,
+        );
+
+        let events = collect_anthropic_events(&input).await;
+
+        let deltas: Vec<&Value> = events
+            .iter()
+            .filter(|event| {
+                event.get("type").and_then(|v| v.as_str()) == Some("content_block_delta")
+                    && event.pointer("/delta/type").and_then(|v| v.as_str())
+                        == Some("input_json_delta")
+            })
+            .collect();
+
+        assert!(
+            !deltas.is_empty(),
+            "Normal Python code tool call should not be aborted; expected input_json_delta events"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_whitespace_detection_copilot_infinite_whitespace_aborted() {
+        // 模拟 Copilot 无限空白 bug：少量非空白前缀 + 250 空白字符
+        // 前缀 {\"c\":\" 在 delta 中是 {"c":" 共 6 个非空白字符
+        // 加上 250 空白 → 总 256 > 200, 比率 = 250/256 ≈ 0.977 > 0.95
+        let mut args = String::from(r#"{\"c\":\""#);
+        for _ in 0..250 {
+            args.push(' ');
+        }
+
+        let input = format!(
+            "data: {{\"id\":\"chatcmpl_ws\",\"model\":\"copilot\",\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\"id\":\"call_ws\",\"type\":\"function\",\"function\":{{\"name\":\"Write\"}}}}]}}}}]}}\n\n\
+             data: {{\"id\":\"chatcmpl_ws\",\"model\":\"copilot\",\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\"function\":{{\"arguments\":\"{}\"}}}}]}}}}]}}\n\n\
+             data: {{\"id\":\"chatcmpl_ws\",\"model\":\"copilot\",\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"tool_calls\"}}],\"usage\":{{\"prompt_tokens\":10,\"completion_tokens\":5}}}}\n\n\
+             data: [DONE]\n\n",
+            args,
+        );
+
+        let events = collect_anthropic_events(&input).await;
+
+        let deltas: Vec<&Value> = events
+            .iter()
+            .filter(|event| {
+                event.get("type").and_then(|v| v.as_str()) == Some("content_block_delta")
+                    && event.pointer("/delta/type").and_then(|v| v.as_str())
+                        == Some("input_json_delta")
+            })
+            .collect();
+
+        assert_eq!(
+            deltas.len(),
+            0,
+            "Copilot infinite whitespace bug should trigger abort; expected 0 deltas, got {}",
+            deltas.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_whitespace_detection_short_all_whitespace_not_aborted() {
+        // 模拟 arguments 总长度不足 MIN_ARGS_LEN_FOR_CHECK（200）但全为空白
+        // 100 个空白字符，比率 100% 但长度不足，不应触发 abort
+        let short_whitespace: String = " ".repeat(100);
+
+        let input = format!(
+            "data: {{\"id\":\"chatcmpl_short\",\"model\":\"gpt-4o\",\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\"id\":\"call_short\",\"type\":\"function\",\"function\":{{\"name\":\"Write\"}}}}]}}}}]}}\n\n\
+             data: {{\"id\":\"chatcmpl_short\",\"model\":\"gpt-4o\",\"choices\":[{{\"delta\":{{\"tool_calls\":[{{\"index\":0,\"function\":{{\"arguments\":\"{}\"}}}}]}}}}]}}\n\n\
+             data: {{\"id\":\"chatcmpl_short\",\"model\":\"gpt-4o\",\"choices\":[{{\"delta\":{{}},\"finish_reason\":\"tool_calls\"}}],\"usage\":{{\"prompt_tokens\":5,\"completion_tokens\":2}}}}\n\n\
+             data: [DONE]\n\n",
+            short_whitespace,
+        );
+
+        let events = collect_anthropic_events(&input).await;
+
+        let deltas: Vec<&Value> = events
+            .iter()
+            .filter(|event| {
+                event.get("type").and_then(|v| v.as_str()) == Some("content_block_delta")
+                    && event.pointer("/delta/type").and_then(|v| v.as_str())
+                        == Some("input_json_delta")
+            })
+            .collect();
+
+        assert!(
+            !deltas.is_empty(),
+            "Short all-whitespace arguments (< MIN_ARGS_LEN_FOR_CHECK) should not be aborted"
+        );
     }
 }

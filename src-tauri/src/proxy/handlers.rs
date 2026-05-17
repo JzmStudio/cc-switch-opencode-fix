@@ -289,7 +289,12 @@ async fn handle_claude_transform(
                 tool_schema_hints.clone(),
             )))
         } else {
-            Box::new(Box::pin(create_anthropic_sse_stream(stream)))
+            let provider_hint = ctx
+                .provider
+                .meta
+                .as_ref()
+                .and_then(|meta| meta.provider_type.clone());
+            Box::new(Box::pin(create_anthropic_sse_stream(stream, provider_hint)))
         };
 
         // 创建使用量收集器；关闭 usage logging 时不要再解析转换后的 SSE。
