@@ -29,7 +29,7 @@
 3. **API Key を入力** — [opencode.ai/zen](https://opencode.ai/zen) で API Key を取得し、`ANTHROPIC_AUTH_TOKEN` に貼り付けます。
 4. **プロバイダを有効化** — OpenCode Go カードで **「Enable」** をクリック。
 5. **ローカルプロキシを有効化** — **Settings** で **Local Proxy** をオンにします。
-6. **OpenCode CLI を再起動** — ターミナルを閉じて再度開き、通常通り `opencode` を実行してください。
+6. **Claude Code を再起動** — ターミナルを閉じて再度開き、通常通り `claude` を実行してください。
 
 ### OpenCode Go の特長
 

@@ -29,7 +29,7 @@ English | [中文](README_ZH.md) | [日本語](README_JA.md) | [Changelog](CHANG
 3. **Enter your API key** — Get your key at [opencode.ai/zen](https://opencode.ai/zen) and paste it into `ANTHROPIC_AUTH_TOKEN`.
 4. **Enable the provider** — Click **"Enable"** on the OpenCode Go card.
 5. **Enable Local Proxy** — Go to **Settings** → turn on **Local Proxy**.
-6. **Restart OpenCode CLI** — Close and reopen your terminal, then run `opencode` as usual.
+6. **Restart Claude Code** — Close and reopen your terminal, then run `claude` as usual.
 
 ### What Makes OpenCode Go Special
 

@@ -29,7 +29,7 @@
 3. **填入 API Key** — 前往 [opencode.ai/zen](https://opencode.ai/zen) 获取 API Key，粘贴到 `ANTHROPIC_AUTH_TOKEN` 中。
 4. **启用供应商** — 在 OpenCode Go 卡片上点击 **"启用"**。
 5. **开启本地代理** — 进入 **设置** → 打开 **本地代理（Local Proxy）**。
-6. **重启 OpenCode CLI** — 关闭并重新打开终端，然后正常使用 `opencode` 即可。
+6. **重启 Claude Code** — 关闭并重新打开终端，然后正常使用 `claude` 即可。
 
 ### OpenCode Go 特性
 
